@@ -19,9 +19,10 @@
     under the License.
  */
 
-package de.appplant.cordova.plugin.background;
+package com.dreamboyfire.plugin.foreground;
+// package com.dreamboyfire.plugin.backgroundmode;
 
-import android.annotation.TargetApi;
+
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -36,7 +37,8 @@ import android.os.PowerManager;
 
 import org.json.JSONObject;
 
-import static android.os.PowerManager.PARTIAL_WAKE_LOCK;
+import java.lang.reflect.Method;
+import android.support.v7.app.NotificationCompat;
 
 /**
  * Puts the service in a foreground state, where the system considers it to be
@@ -46,7 +48,7 @@ import static android.os.PowerManager.PARTIAL_WAKE_LOCK;
 public class ForegroundService extends Service {
 
     // Fixed ID for the 'foreground' notification
-    public static final int NOTIFICATION_ID = -574543954;
+    public int NOTIFICATION_ID = -574543954;
 
     // Default title of the background notification
     private static final String NOTIFICATION_TITLE =
@@ -95,6 +97,22 @@ public class ForegroundService extends Service {
         keepAwake();
     }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        NOTIFICATION_ID = startId;
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext());
+        builder.setContentTitle("I'm running");
+        builder.setSmallIcon(0);
+        Notification notification = builder.build();
+
+        startForeground(NOTIFICATION_ID, notification);
+
+        getNotificationManager().cancel(NOTIFICATION_ID);
+
+        return super.onStartCommand(intent, flags, startId);
+    }
+
     /**
      * No need to run headless on destroy.
      */
@@ -112,15 +130,16 @@ public class ForegroundService extends Service {
         JSONObject settings = BackgroundMode.getSettings();
         boolean isSilent    = settings.optBoolean("silent", false);
 
-        if (!isSilent) {
+        /*if (!isSilent) {
             startForeground(NOTIFICATION_ID, makeNotification());
-        }
+            getNotificationManager().cancel(NOTIFICATION_ID);
+        }*/
 
-        PowerManager pm = (PowerManager)
+        PowerManager powerMgr = (PowerManager)
                 getSystemService(POWER_SERVICE);
 
-        wakeLock = pm.newWakeLock(
-                PARTIAL_WAKE_LOCK, "BackgroundMode");
+        wakeLock = powerMgr.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "BackgroundMode");
 
         wakeLock.acquire();
     }
@@ -162,7 +181,8 @@ public class ForegroundService extends Service {
         Intent intent   = context.getPackageManager()
                 .getLaunchIntentForPackage(pkgName);
 
-        Notification.Builder notification = new Notification.Builder(context)
+        /*Notification.Builder notification = new Notification.Builder(context);
+        notification
                 .setContentTitle(title)
                 .setContentText(text)
                 .setOngoing(true)
@@ -170,21 +190,33 @@ public class ForegroundService extends Service {
 
         if (settings.optBoolean("hidden", true)) {
             notification.setPriority(Notification.PRIORITY_MIN);
+        } else {
+
         }
 
         if (bigText || text.contains("\n")) {
-            notification.setStyle(
-                    new Notification.BigTextStyle().bigText(text));
+            notification.setStyle(new Notification.BigTextStyle().bigText(text));
         }
 
         setColor(notification, settings);
 
         if (intent != null && settings.optBoolean("resume")) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             PendingIntent contentIntent = PendingIntent.getActivity(
                     context, NOTIFICATION_ID, intent,
                     PendingIntent.FLAG_UPDATE_CURRENT);
 
+            notification.setContentIntent(contentIntent);
+        }*/
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(getApplicationContext());
+        notification
+                .setContentTitle(title)
+                .setContentText(text)
+                .setOngoing(true)
+                .setSmallIcon(getIconResId(settings));
+        if (intent != null && settings.optBoolean("resume")) {
+            PendingIntent contentIntent = PendingIntent.getActivity(
+                    context, NOTIFICATION_ID, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT);
 
             notification.setContentIntent(contentIntent);
         }
@@ -205,8 +237,10 @@ public class ForegroundService extends Service {
             return;
         }
 
-        Notification notification = makeNotification(settings);
-        getNotificationManager().notify(NOTIFICATION_ID, notification);
+        /*Notification notification = makeNotification(settings);
+
+        getNotificationManager().notify(
+                NOTIFICATION_ID, notification);*/
     }
 
     /**
@@ -215,13 +249,16 @@ public class ForegroundService extends Service {
      * @param settings A JSON dict containing the icon name.
      */
     private int getIconResId(JSONObject settings) {
-        String icon = settings.optString("icon", NOTIFICATION_ICON);
+        Context context = getApplicationContext();
+        Resources res   = context.getResources();
+        String pkgName  = context.getPackageName();
+        String icon     = settings.optString("icon", NOTIFICATION_ICON);
 
         // cordova-android 6 uses mipmaps
-        int resId = getIconResId(icon, "mipmap");
+        int resId = getIconResId(res, icon, "mipmap", pkgName);
 
         if (resId == 0) {
-            resId = getIconResId(icon, "drawable");
+            resId = getIconResId(res, icon, "drawable", pkgName);
         }
 
         return resId;
@@ -230,14 +267,15 @@ public class ForegroundService extends Service {
     /**
      * Retrieve resource id of the specified icon.
      *
+     * @param res The app resource bundle.
      * @param icon The name of the icon.
      * @param type The resource type where to look for.
+     * @param pkgName The name of the package.
      *
      * @return The resource id or 0 if not found.
      */
-    private int getIconResId(String icon, String type) {
-        Resources res  = getResources();
-        String pkgName = getPackageName();
+    private int getIconResId(Resources res, String icon,
+                             String type, String pkgName) {
 
         int resId = res.getIdentifier(icon, type, pkgName);
 
@@ -254,7 +292,6 @@ public class ForegroundService extends Service {
      * @param notification A Notification.Builder instance
      * @param settings A JSON dict containing the color definition (red: FF0000)
      */
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private void setColor(Notification.Builder notification,
                           JSONObject settings) {
 
@@ -265,7 +302,10 @@ public class ForegroundService extends Service {
 
         try {
             int aRGB = Integer.parseInt(hex, 16) + 0xFF000000;
-            notification.setColor(aRGB);
+            Method setColorMethod = notification.getClass().getMethod(
+                    "setColor", int.class);
+
+            setColorMethod.invoke(notification, aRGB);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -275,7 +315,8 @@ public class ForegroundService extends Service {
      * Shared manager for the notification service.
      */
     private NotificationManager getNotificationManager() {
-        return (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        return (NotificationManager) getSystemService(
+                Context.NOTIFICATION_SERVICE);
     }
 
 }

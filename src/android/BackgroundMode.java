@@ -19,10 +19,12 @@
     under the License.
  */
 
-package de.appplant.cordova.plugin.background;
+package com.dreamboyfire.plugin.foreground;
+//package com.dreamboyfire.plugin.backgroundmode;
 
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
@@ -32,10 +34,6 @@ import org.apache.cordova.CordovaPlugin;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-
-import de.appplant.cordova.plugin.background.ForegroundService.ForegroundBinder;
-
-import static android.content.Context.BIND_AUTO_CREATE;
 
 public class BackgroundMode extends CordovaPlugin {
 
@@ -67,7 +65,9 @@ public class BackgroundMode extends CordovaPlugin {
     private final ServiceConnection connection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            ForegroundBinder binder = (ForegroundBinder) service;
+            ForegroundService.ForegroundBinder binder =
+                    (ForegroundService.ForegroundBinder) service;
+
             BackgroundMode.this.service = binder.getService();
         }
 
@@ -76,13 +76,6 @@ public class BackgroundMode extends CordovaPlugin {
             fireEvent(Event.FAILURE, "'service disconnected'");
         }
     };
-
-    @Override
-    protected void pluginInitialize() {
-        BackgroundExt.addWindowFlags(cordova.getActivity());
-    }
-
-    // codebeat:disable[ABC]
 
     /**
      * Executes the request.
@@ -101,28 +94,27 @@ public class BackgroundMode extends CordovaPlugin {
                             CallbackContext callback) throws JSONException {
 
         if (action.equalsIgnoreCase("configure")) {
-            configure(args.getJSONObject(0), args.getBoolean(1));
-            callback.success();
-            return true;
-        }
+            JSONObject settings = args.getJSONObject(0);
+            boolean update      = args.getBoolean(1);
 
+            configure(settings, update);
+        }
+        else
         if (action.equalsIgnoreCase("enable")) {
             enableMode();
-            callback.success();
-            return true;
         }
-
+        else
         if (action.equalsIgnoreCase("disable")) {
             disableMode();
-            callback.success();
-            return true;
+        }
+        else {
+            BackgroundExt.execute(action, cordova, webView);
         }
 
-        BackgroundExt.execute(this, action, callback);
+        callback.success();
+
         return true;
     }
-
-    // codebeat:enable[ABC]
 
     /**
      * Called when the system is about to start resuming a previous activity.
@@ -153,9 +145,8 @@ public class BackgroundMode extends CordovaPlugin {
      */
     @Override
     public void onDestroy() {
-        stopService();
         super.onDestroy();
-        android.os.Process.killProcess(android.os.Process.myPid());
+        stopService();
     }
 
     /**
@@ -185,9 +176,9 @@ public class BackgroundMode extends CordovaPlugin {
      */
     private void configure(JSONObject settings, boolean update) {
         if (update) {
-            updateNotification(settings);
+//            updateNotification(settings);
         } else {
-            setDefaultSettings(settings);
+//            setDefaultSettings(settings);
         }
     }
 
@@ -217,7 +208,7 @@ public class BackgroundMode extends CordovaPlugin {
      */
     private void updateNotification(JSONObject settings) {
         if (isBind) {
-            service.updateNotification(settings);
+//            service.updateNotification(settings);
         }
     }
 
@@ -231,12 +222,27 @@ public class BackgroundMode extends CordovaPlugin {
         if (isDisabled || isBind)
             return;
 
-        Intent intent = new Intent(context, ForegroundService.class);
+        Intent intent = new Intent(
+                context, ForegroundService.class);
 
         try {
-            context.bindService(intent, connection, BIND_AUTO_CREATE);
+            context.bindService(intent,
+                    connection, Context.BIND_AUTO_CREATE);
+
             fireEvent(Event.ACTIVATE, null);
-            context.startService(intent);
+
+            //context.startService(intent);
+            JSONObject settings = getSettings();
+            boolean isSlient = settings.optBoolean("silent", false);
+            if (isSlient) {
+                context.startService(intent);
+            } else {
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(intent);
+                } else {
+                    context.startService(intent);
+                }
+            }
         } catch (Exception e) {
             fireEvent(Event.FAILURE, String.format("'%s'", e.getMessage()));
         }
@@ -250,12 +256,15 @@ public class BackgroundMode extends CordovaPlugin {
      */
     private void stopService() {
         Activity context = cordova.getActivity();
-        Intent intent    = new Intent(context, ForegroundService.class);
+
+        Intent intent = new Intent(
+                context, ForegroundService.class);
 
         if (!isBind)
             return;
 
         fireEvent(Event.DEACTIVATE, null);
+
         context.unbindService(connection);
         context.stopService(intent);
 
@@ -269,19 +278,29 @@ public class BackgroundMode extends CordovaPlugin {
      * @param params Optional arguments for the event
      */
     private void fireEvent (Event event, String params) {
-        String eventName = event.name().toLowerCase();
-        Boolean active   = event == Event.ACTIVATE;
+        String eventName;
 
-        String str = String.format("%s._setActive(%b)",
+        switch (event) {
+            case ACTIVATE:
+                eventName = "activate"; break;
+            case DEACTIVATE:
+                eventName = "deactivate"; break;
+            default:
+                eventName = "failure";
+        }
+
+        String active = event == Event.ACTIVATE ? "true" : "false";
+
+        String flag = String.format("%s._isActive=%s;",
                 JS_NAMESPACE, active);
 
-        str = String.format("%s;%s.on%s(%s)",
-                str, JS_NAMESPACE, eventName, params);
+        String depFn = String.format("%s.on%s(%s);",
+                JS_NAMESPACE, eventName, params);
 
-        str = String.format("%s;%s.fireEvent('%s',%s);",
-                str, JS_NAMESPACE, eventName, params);
+        String fn = String.format("%s.fireEvent('%s',%s);",
+                JS_NAMESPACE, eventName, params);
 
-        final String js = str;
+        final String js = flag + fn + depFn;
 
         cordova.getActivity().runOnUiThread(new Runnable() {
             @Override
