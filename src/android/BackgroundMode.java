@@ -19,8 +19,7 @@
     under the License.
  */
 
-package com.dreamboyfire.plugin.foreground;
-//package com.dreamboyfire.plugin.backgroundmode;
+package de.appplant.cordova.plugin.background;
 
 import android.app.Activity;
 import android.content.ComponentName;
@@ -158,6 +157,31 @@ public class BackgroundMode extends CordovaPlugin {
         if (inBackground) {
             startService();
         }
+
+		ignoreBatteryOptimization();
+    }
+
+	/**
+     * 忽略电池优化
+     */
+    public void ignoreBatteryOptimization() {
+
+        android.os.PowerManager powerManager = (android.os.PowerManager) cordova.getActivity().getSystemService(cordova.getActivity().POWER_SERVICE);
+
+        boolean hasIgnored = false;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            hasIgnored = powerManager.isIgnoringBatteryOptimizations(cordova.getActivity().getPackageName());
+        }
+
+        //  判断当前APP是否有加入电池优化的白名单，如果没有，弹出加入电池优化的白名单的设置对话框。
+
+        if(!hasIgnored) {
+            Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(android.net.Uri.parse("package:" + cordova.getActivity().getPackageName()));
+			if (intent != null) {
+				cordova.getActivity().startActivity(intent);
+			}
+        }
     }
 
     /**
@@ -176,9 +200,9 @@ public class BackgroundMode extends CordovaPlugin {
      */
     private void configure(JSONObject settings, boolean update) {
         if (update) {
-//            updateNotification(settings);
+            updateNotification(settings);
         } else {
-//            setDefaultSettings(settings);
+            setDefaultSettings(settings);
         }
     }
 
@@ -208,7 +232,7 @@ public class BackgroundMode extends CordovaPlugin {
      */
     private void updateNotification(JSONObject settings) {
         if (isBind) {
-//            service.updateNotification(settings);
+            service.updateNotification(settings);
         }
     }
 
@@ -232,16 +256,14 @@ public class BackgroundMode extends CordovaPlugin {
             fireEvent(Event.ACTIVATE, null);
 
             //context.startService(intent);
-            JSONObject settings = getSettings();
-            boolean isSlient = settings.optBoolean("silent", false);
-            if (isSlient) {
-                context.startService(intent);
+			if (android.os.Build.VERSION.SDK_INT >= 26) {
+                context.startForegroundService(intent);
+
+                Intent receiverIntent = new Intent(context, AlarmReceiver.class);
+                receiverIntent.setAction(AlarmReceiver.ACTION_ALARM_START);
+                context.sendBroadcast(receiverIntent);
             } else {
-                if (android.os.Build.VERSION.SDK_INT >= 26) {
-                    context.startForegroundService(intent);
-                } else {
-                    context.startService(intent);
-                }
+                context.startService(intent);
             }
         } catch (Exception e) {
             fireEvent(Event.FAILURE, String.format("'%s'", e.getMessage()));
@@ -267,6 +289,10 @@ public class BackgroundMode extends CordovaPlugin {
 
         context.unbindService(connection);
         context.stopService(intent);
+
+        Intent receiverIntent = new Intent(context, AlarmReceiver.class);
+        receiverIntent.setAction(AlarmReceiver.ACTION_ALARM_STOP);
+        context.sendBroadcast(receiverIntent);
 
         isBind = false;
     }

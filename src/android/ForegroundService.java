@@ -19,9 +19,7 @@
     under the License.
  */
 
-package com.dreamboyfire.plugin.foreground;
-// package com.dreamboyfire.plugin.backgroundmode;
-
+package de.appplant.cordova.plugin.background;
 
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -34,11 +32,11 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.app.AlarmManager;
 
 import org.json.JSONObject;
 
 import java.lang.reflect.Method;
-import android.support.v7.app.NotificationCompat;
 
 /**
  * Puts the service in a foreground state, where the system considers it to be
@@ -47,8 +45,10 @@ import android.support.v7.app.NotificationCompat;
  */
 public class ForegroundService extends Service {
 
+    public static String ACTION_ALARM = "ACTION_ALARM";
+
     // Fixed ID for the 'foreground' notification
-    public int NOTIFICATION_ID = -574543954;
+    public static final int NOTIFICATION_ID = -574543954;
 
     // Default title of the background notification
     private static final String NOTIFICATION_TITLE =
@@ -97,22 +97,6 @@ public class ForegroundService extends Service {
         keepAwake();
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        NOTIFICATION_ID = startId;
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext());
-        builder.setContentTitle("I'm running");
-        builder.setSmallIcon(0);
-        Notification notification = builder.build();
-
-        startForeground(NOTIFICATION_ID, notification);
-
-        getNotificationManager().cancel(NOTIFICATION_ID);
-
-        return super.onStartCommand(intent, flags, startId);
-    }
-
     /**
      * No need to run headless on destroy.
      */
@@ -130,10 +114,9 @@ public class ForegroundService extends Service {
         JSONObject settings = BackgroundMode.getSettings();
         boolean isSilent    = settings.optBoolean("silent", false);
 
-        /*if (!isSilent) {
+        if (!isSilent) {
             startForeground(NOTIFICATION_ID, makeNotification());
-            getNotificationManager().cancel(NOTIFICATION_ID);
-        }*/
+        }
 
         PowerManager powerMgr = (PowerManager)
                 getSystemService(POWER_SERVICE);
@@ -142,7 +125,26 @@ public class ForegroundService extends Service {
                 PowerManager.PARTIAL_WAKE_LOCK, "BackgroundMode");
 
         wakeLock.acquire();
+
+        setAlarm(5000);
     }
+
+  private void setAlarm(long time) {
+    AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+//        Intent intent = new Intent(this, BackgroundTaskService.class);
+    Intent intent = new Intent(this, AlarmReceiver.class);
+    intent.setAction(ACTION_ALARM);
+//        PendingIntent pendingIntent = PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+    PendingIntent pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+//      am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, time, pendingIntent);
+    }
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(time, null);
+            am.setAlarmClock(info, pendingIntent);
+    }
+  }
 
     /**
      * Stop background mode.
@@ -181,8 +183,7 @@ public class ForegroundService extends Service {
         Intent intent   = context.getPackageManager()
                 .getLaunchIntentForPackage(pkgName);
 
-        /*Notification.Builder notification = new Notification.Builder(context);
-        notification
+        Notification.Builder notification = new Notification.Builder(context)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setOngoing(true)
@@ -190,29 +191,15 @@ public class ForegroundService extends Service {
 
         if (settings.optBoolean("hidden", true)) {
             notification.setPriority(Notification.PRIORITY_MIN);
-        } else {
-
         }
 
         if (bigText || text.contains("\n")) {
-            notification.setStyle(new Notification.BigTextStyle().bigText(text));
+            notification.setStyle(
+                    new Notification.BigTextStyle().bigText(text));
         }
 
         setColor(notification, settings);
 
-        if (intent != null && settings.optBoolean("resume")) {
-            PendingIntent contentIntent = PendingIntent.getActivity(
-                    context, NOTIFICATION_ID, intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT);
-
-            notification.setContentIntent(contentIntent);
-        }*/
-        NotificationCompat.Builder notification = new NotificationCompat.Builder(getApplicationContext());
-        notification
-                .setContentTitle(title)
-                .setContentText(text)
-                .setOngoing(true)
-                .setSmallIcon(getIconResId(settings));
         if (intent != null && settings.optBoolean("resume")) {
             PendingIntent contentIntent = PendingIntent.getActivity(
                     context, NOTIFICATION_ID, intent,
